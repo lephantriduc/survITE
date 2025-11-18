@@ -38,7 +38,7 @@ def fcnet(
     activation_fn_: tf activation functions
     reuse         : (bool)
     """
-    with tf.variable_scope(name, reuse=reuse):
+    with tf.compat.v1.variable_scope(name, reuse=reuse):
         if num_layers_ == 1:
             out = tf.contrib.layers.fully_connected(
                 inputs=x_,
@@ -104,7 +104,7 @@ class SurvITE:
         self._build_net()
 
     def _build_net(self):
-        with tf.variable_scope(self.name):
+        with tf.compat.v1.variable_scope(self.name):
             #### PLACEHOLDER DECLARATION
             self.lr_rate = tf.placeholder(tf.float32, [], name="learning_rate")
             self.k_prob = tf.placeholder(
