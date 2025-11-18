@@ -105,28 +105,28 @@ class SurvITE:
 
     def _build_net(self):
         with tf.compat.v1.variable_scope(self.name):
-            #### PLACEHOLDER DECLARATION
-            self.lr_rate = tf.placeholder(tf.float32, [], name="learning_rate")
-            self.k_prob = tf.placeholder(
+            #### placeholder DECLARATION
+            self.lr_rate = tf.compat.v1.placeholder(tf.float32, [], name="learning_rate")
+            self.k_prob = tf.compat.v1.placeholder(
                 tf.float32, [], name="keep_probability"
             )  # keeping rate
-            self.alpha = tf.placeholder(tf.float32, [], name="alpha")
-            self.beta = tf.placeholder(tf.float32, [], name="beta")
-            self.gamma = tf.placeholder(tf.float32, [], name="gamma")
+            self.alpha = tf.compat.v1.placeholder(tf.float32, [], name="alpha")
+            self.beta = tf.compat.v1.placeholder(tf.float32, [], name="beta")
+            self.gamma = tf.compat.v1.placeholder(tf.float32, [], name="gamma")
 
-            self.x = tf.placeholder(tf.float32, shape=[None, self.x_dim], name="inputs")
-            self.y = tf.placeholder(
+            self.x = tf.compat.v1.placeholder(tf.float32, shape=[None, self.x_dim], name="inputs")
+            self.y = tf.compat.v1.placeholder(
                 tf.float32, shape=[None, self.num_Event], name="labels"
             )  # event/censoring label (censoring: the last column)
-            self.t = tf.placeholder(tf.float32, shape=[None, 1], name="times")
-            self.a = tf.placeholder(
+            self.t = tf.compat.v1.placeholder(tf.float32, shape=[None, 1], name="times")
+            self.a = tf.compat.v1.placeholder(
                 tf.float32, shape=[None, 1], name="treatment_assignments"
             )
-            self.w = tf.placeholder(
+            self.w = tf.compat.v1.placeholder(
                 tf.float32, shape=[None, self.t_max, 2], name="weights"
             )
 
-            self.is_training = tf.placeholder(
+            self.is_training = tf.compat.v1.placeholder(
                 tf.bool, name="train_test_indicator"
             )  # for batch_normalization
 
