@@ -1,4 +1,6 @@
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
+
 import numpy as np
 
 from utils.ipm_utils import mmd2_lin, wasserstein
