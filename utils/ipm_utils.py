@@ -7,18 +7,18 @@ _EPSILON = 1e-08
 ################################
 ##### USER-DEFINED FUNCTIONS
 def log(x):
-    return tf.log(x + _EPSILON)
+    return tf.math.log(x + _EPSILON)
 
 def div(x, y):
-    return tf.div(x, (y + _EPSILON))
+    return tf.compat.v1.div(x, (y + _EPSILON))
 
 ################################
 ##### IPM TERMS
 def pdist2sq(X,Y):
     """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
     C = -2*tf.matmul(X,tf.transpose(Y))
-    nx = tf.reduce_sum(tf.square(X),1,keep_dims=True)
-    ny = tf.reduce_sum(tf.square(Y),1,keep_dims=True)
+    nx = tf.reduce_sum(tf.square(X),1,keepdims=True)
+    ny = tf.reduce_sum(tf.square(Y),1,keepdims=True)
     D = (C + tf.transpose(ny)) + nx
     return D
 
@@ -70,8 +70,8 @@ def mmd2_lin(X1,X2,W1=None,W2=None,p=0.5,weights=None):
 
 def wasserstein(X1,X2,W1=None,W2=None,p=0.5,lam=10,its=10): #,sq=False,backpropT=False):
     """ Returns the Wasserstein distance between treatment groups """    
-    n1 = tf.to_float(tf.shape(X1)[0])
-    n2 = tf.to_float(tf.shape(X2)[0])
+    n1 = tf.cast(tf.shape(X1)[0], dtype=tf.float32)
+    n2 = tf.cast(tf.shape(X2)[0], dtype=tf.float32)
     
     ''' Compute distance matrix'''
     M = pdist2sq(X1,X2)
@@ -91,7 +91,7 @@ def wasserstein(X1,X2,W1=None,W2=None,p=0.5,lam=10,its=10): #,sq=False,backpropT
     ''' Estimate lambda and delta '''
     M_mean = tf.reduce_sum(M*W_mask) #this becomes weighted average
     
-    M_drop  = tf.nn.dropout(M, 10/(n1*n2))
+    M_drop  = tf.nn.dropout(M, rate=1 - (10/(n1*n2)))
     delta   = tf.stop_gradient(tf.reduce_max(M))
     eff_lam = tf.stop_gradient(lam/M_mean)
 

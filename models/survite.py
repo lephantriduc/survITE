@@ -1,6 +1,4 @@
 import tensorflow as tf
-tf.compat.v1.disable_eager_execution()
-
 import numpy as np
 
 from utils.ipm_utils import mmd2_lin, wasserstein
@@ -12,11 +10,11 @@ _EPSILON = 1e-08
 ################################
 ##### USER-DEFINED FUNCTIONS
 def log(x):
-    return tf.log(x + _EPSILON)
+    return tf.math.log(x + _EPSILON)
 
 
 def div(x, y):
-    return tf.div(x, (y + _EPSILON))
+    return tf.compat.v1.div(x, (y + _EPSILON))
 
 
 ##### NETWORK FUNCTIONS
@@ -60,7 +58,7 @@ def fcnet(
                     weights_regularizer=w_reg_,
                     scope="layer_" + str(tmp_layer),
                 )
-                net = tf.nn.dropout(net, keep_prob=keep_prob_)
+                net = tf.nn.dropout(net, rate=1 - (keep_prob_))
             out = tf.contrib.layers.fully_connected(
                 inputs=net,
                 num_outputs=o_dim_,
@@ -107,7 +105,7 @@ class SurvITE:
 
     def _build_net(self):
         with tf.compat.v1.variable_scope(self.name):
-            #### placeholder DECLARATION
+            #### PLACEHOLDER DECLARATION
             self.lr_rate = tf.compat.v1.placeholder(tf.float32, [], name="learning_rate")
             self.k_prob = tf.compat.v1.placeholder(
                 tf.float32, [], name="keep_probability"
@@ -157,9 +155,9 @@ class SurvITE:
 
             ###BATCH NORMALIZATION. (This follows the implementation of CFRNet)
             #             self.z = tf.math.l2_normalize(self.z, axis=0)
-            self.z = tf.layers.batch_normalization(self.z, training=self.is_training)
+            self.z = tf.compat.v1.layers.batch_normalization(self.z, training=self.is_training)
             self.z = self.active_fn(self.z)
-            self.z = tf.nn.dropout(self.z, keep_prob=self.k_prob)
+            self.z = tf.nn.dropout(self.z, rate=1 - (self.k_prob))
 
             ### H(Z; A,T)
             for m in range(self.t_max):
@@ -206,12 +204,12 @@ class SurvITE:
             if self.ipm_term != "no_ipm":
                 # for m in range(1, self.t_max):
                 for m in range(0, self.t_max):
-                    idx1 = tf.where(tf.equal(self.a[:, 0] * self.mask2[:, m], 1.0))[
+                    idx1 = tf.compat.v1.where(tf.equal(self.a[:, 0] * self.mask2[:, m], 1.0))[
                         :, 0
                     ]
 
                     if self.is_treat:
-                        idx0 = tf.where(
+                        idx0 = tf.compat.v1.where(
                             tf.equal((1.0 - self.a[:, 0]) * self.mask2[:, m], 1.0)
                         )[:, 0]
 
@@ -268,12 +266,12 @@ class SurvITE:
 
             if self.is_smoothing:
                 for m in range(1, self.t_max):
-                    tmp_Wprev = tf.get_collection(
-                        tf.GraphKeys.GLOBAL_VARIABLES,
+                    tmp_Wprev = tf.compat.v1.get_collection(
+                        tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
                         scope=self.name + "/hypothesis_A1_T{}".format(m - 1),
                     )[::2]
-                    tmp_Wcurr = tf.get_collection(
-                        tf.GraphKeys.GLOBAL_VARIABLES,
+                    tmp_Wcurr = tf.compat.v1.get_collection(
+                        tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
                         scope=self.name + "/hypothesis_A1_T{}".format(m),
                     )[::2]
                     for l in range(self.num_layers2):
@@ -282,12 +280,12 @@ class SurvITE:
                         )  ## average over each parameter (for scaling)
 
                     if self.is_treat:
-                        tmp_Wprev = tf.get_collection(
-                            tf.GraphKeys.GLOBAL_VARIABLES,
+                        tmp_Wprev = tf.compat.v1.get_collection(
+                            tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
                             scope=self.name + "/hypothesis_A0_T{}".format(m - 1),
                         )[::2]
-                        tmp_Wcurr = tf.get_collection(
-                            tf.GraphKeys.GLOBAL_VARIABLES,
+                        tmp_Wcurr = tf.compat.v1.get_collection(
+                            tf.compat.v1.GraphKeys.GLOBAL_VARIABLES,
                             scope=self.name + "/hypothesis_A0_T{}".format(m),
                         )[::2]
                         for l in range(self.num_layers2):
@@ -339,20 +337,19 @@ class SurvITE:
                 self.loss += loss_A0
 
             ### l2-regularization
-            self.vars_encoder = tf.get_collection(
-                tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name + "/encoder"
+            self.vars_encoder = tf.compat.v1.get_collection(
+                tf.compat.v1.GraphKeys.GLOBAL_VARIABLES, scope=self.name + "/encoder"
             )
 
             if self.reg_scale != 0:
                 vars_reg = [w for w in self.vars_encoder if "weights" in w.name]
-                regularizer = tf.contrib.layers.l2_regularizer(
-                    scale=self.reg_scale, scope=None
-                )
+                regularizer = tf.keras.regularizers.l2(
+                    l=0.5 * (self.reg_scale))
                 loss_reg = tf.contrib.layers.apply_regularization(regularizer, vars_reg)
             else:
                 loss_reg = 0.0
 
-            self.solver = tf.train.AdamOptimizer(learning_rate=self.lr_rate).minimize(
+            self.solver = tf.compat.v1.train.AdamOptimizer(learning_rate=self.lr_rate).minimize(
                 self.loss
             )
 
@@ -362,12 +359,12 @@ class SurvITE:
                 + self.gamma * self.loss_smoothing
                 + loss_reg
             )
-            self.solver_total = tf.train.AdamOptimizer(
+            self.solver_total = tf.compat.v1.train.AdamOptimizer(
                 learning_rate=self.lr_rate
             ).minimize(self.loss_total)
 
             ### batch-normalization operation
-            self.extra_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            self.extra_update_ops = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)
 
     def predict_hazard_A1(self, x_):
         odd = tf.exp(self.logits_A1)
