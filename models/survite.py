@@ -42,7 +42,7 @@ def fcnet(
     """
     with tf.compat.v1.variable_scope(name, reuse=reuse):
         if num_layers_ == 1:
-            out = tf.contrib.layers.fully_connected(
+            out = tf.compat.v1.estimator.layers.fully_connected(
                 inputs=x_,
                 num_outputs=o_dim_,
                 activation_fn=o_fn_,
@@ -53,7 +53,7 @@ def fcnet(
             for tmp_layer in range(num_layers_ - 1):
                 if tmp_layer == 0:
                     net = x_
-                net = tf.contrib.layers.fully_connected(
+                net = tf.compat.v1.estimator.layers.fully_connected(
                     inputs=net,
                     num_outputs=h_dim_,
                     activation_fn=activation_fn,
@@ -61,7 +61,7 @@ def fcnet(
                     scope="layer_" + str(tmp_layer),
                 )
                 net = tf.nn.dropout(net, rate=1 - (keep_prob_))
-            out = tf.contrib.layers.fully_connected(
+            out = tf.compat.v1.estimator.layers.fully_connected(
                 inputs=net,
                 num_outputs=o_dim_,
                 activation_fn=o_fn_,
@@ -347,7 +347,7 @@ class SurvITE:
                 vars_reg = [w for w in self.vars_encoder if "weights" in w.name]
                 regularizer = tf.keras.regularizers.l2(
                     l=0.5 * (self.reg_scale))
-                loss_reg = tf.contrib.layers.apply_regularization(regularizer, vars_reg)
+                loss_reg = tf.compat.v1.estimator.layers.apply_regularization(regularizer, vars_reg)
             else:
                 loss_reg = 0.0
 
