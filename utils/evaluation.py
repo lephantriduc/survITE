@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from sksurv.metrics import concordance_index_ipcw, brier_score
+from sksurv.metrics import concordance_index_censored, brier_score
 from sksurv.util import Surv
 
 class SurvITE_Evaluator:
@@ -54,27 +54,32 @@ class SurvITE_Evaluator:
 
     def calculate_c_index(self, eval_time=None):
         """
-        Calculates Harrell's C-index (IPCW) at a specific time horizon.
-        If eval_time is None, it uses the median follow-up time.
+        Calculates Harrell's C-index. 
+        Robust against time mismatches that crash IPCW.
         """
         if eval_time is None:
             eval_time = np.median(self.t_te)
-            
-        # Ensure eval_time is within model limits
+
+        # 1. Find the column index in predictions corresponding to eval_time
+        # Assuming your model outputs times 0, 1, 2... index is just the integer time
         eval_idx = int(eval_time)
+        
+        # Safety check for index bounds
         if eval_idx >= self.surv_probs.shape[1]:
             eval_idx = self.surv_probs.shape[1] - 1
 
-        # Prediction for C-index is Risk. Risk = 1 - Survival
-        # Higher risk score should correspond to shorter survival time.
+        # 2. Get Risk Scores
+        # Risk = 1.0 - Survival Probability at that specific time
         risk_scores = 1.0 - self.surv_probs[:, eval_idx]
 
-        c_index, concordant, discordant, tied_risk, tied_time = concordance_index_ipcw(
-            self.struc_tr, 
-            self.struc_te, 
-            risk_scores, 
-            tau=eval_time 
+        # 3. Calculate Harrell's C-Index
+        # Note: We use ['event'] and ['time'] because that's what Surv.from_arrays creates
+        c_index, _, _, _, _ = concordance_index_censored(
+            self.struc_te['event'],   # True/False
+            self.struc_te['time'],    # Time
+            risk_scores
         )
+        
         return c_index
 
     def calculate_ibs(self):

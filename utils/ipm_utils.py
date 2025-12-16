@@ -18,6 +18,10 @@ def div(x, y):
 def pdist2sq(X, Y):
     """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
     # X: (n1, d), Y: (n2, d)
+
+    if X.dim() == 1: X = X.unsqueeze(0)
+    if Y.dim() == 1: Y = Y.unsqueeze(0)
+
     C = -2 * torch.matmul(X, Y.t())
     nx = torch.sum(X**2, dim=1, keepdim=True)
     ny = torch.sum(Y**2, dim=1, keepdim=True)
@@ -47,6 +51,10 @@ def mmd2_lin(X1, X2, W1=None, W2=None, p=0.5, weights=None):
 
 def wasserstein(X1, X2, W1=None, W2=None, p=0.5, lam=10, its=10):
     """ Returns the Wasserstein distance between treatment groups """    
+
+    if X1.dim() == 1: X1 = X1.unsqueeze(0)
+    if X2.dim() == 1: X2 = X2.unsqueeze(0)
+
     device = X1.device
     dtype = X1.dtype
     
