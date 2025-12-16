@@ -2,37 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from utils.ipm_utils import mmd2_lin, wasserstein
 
-# --- IPM Utils (Re-implementation for standalone PyTorch usage) ---
-def mmd2_lin(X, t, p, w):
-    """Linear MMD implementation matching the logic of balancing representations."""
-    # This is a simplified linear MMD. 
-    # X: representations, t: treated subset, p: global prob (ones), w: weights
-    # Note: precise implementation depends on the original utils, 
-    # assuming standard mean embedding difference weighted by w.
-    
-    # Weighted mean of Treated (or subset)
-    w = w / (torch.sum(w) + 1e-8)
-    mean_t = torch.sum(t * w.unsqueeze(1), dim=0)
-    
-    # Weighted mean of Control (using whole population or inverse subset usually)
-    # Here we simplify to the mean of X for the implementation
-    mean_all = torch.mean(X, dim=0)
-    
-    return torch.sum((mean_t - mean_all) ** 2)
-
-def wasserstein(x, y, p, w, lam=10, iter=5):
-    """Sinkhorn distance approximation for Wasserstein."""
-    # A simplified version for vectors. 
-    # For exact reproduction of the original library, this might need tuning.
-    # Here we compute distance between weighted means as a proxy if full Sinkhorn is too heavy,
-    # but let's assume a basic distance calculation for now.
-    
-    w = w / (torch.sum(w) + 1e-8)
-    mean_x = torch.mean(x, dim=0) # Approximation if y is subset
-    mean_y = torch.sum(y * w.unsqueeze(1), dim=0)
-    
-    return torch.sqrt(torch.sum((mean_x - mean_y)**2) + 1e-8)
 
 # --- Helper Network ---
 class FCNet(nn.Module):

@@ -1,4 +1,5 @@
-import tensorflow as tf
+import torch
+import torch.nn.functional as F
 import numpy as np
 
 _EPSILON = 1e-08
@@ -7,119 +8,126 @@ _EPSILON = 1e-08
 ################################
 ##### USER-DEFINED FUNCTIONS
 def log(x):
-    return tf.math.log(x + _EPSILON)
+    return torch.log(x + _EPSILON)
 
 def div(x, y):
-    return tf.compat.v1.div(x, (y + _EPSILON))
+    return x / (y + _EPSILON)
 
 ################################
 ##### IPM TERMS
-def pdist2sq(X,Y):
+def pdist2sq(X, Y):
     """ Computes the squared Euclidean distance between all pairs x in X, y in Y """
-    C = -2*tf.matmul(X,tf.transpose(Y))
-    nx = tf.reduce_sum(tf.square(X),1,keepdims=True)
-    ny = tf.reduce_sum(tf.square(Y),1,keepdims=True)
-    D = (C + tf.transpose(ny)) + nx
+    # X: (n1, d), Y: (n2, d)
+    C = -2 * torch.matmul(X, Y.t())
+    nx = torch.sum(X**2, dim=1, keepdim=True)
+    ny = torch.sum(Y**2, dim=1, keepdim=True)
+    D = (C + ny.t()) + nx
     return D
 
 
-# def mmd2_lin(X1,X2,p=0.5):
-#     ''' Linear MMD '''
-#     mean1 = tf.reduce_mean(X1,reduction_indices=0)
-#     mean2 = tf.reduce_mean(X2,reduction_indices=0)
-
-#     mmd = tf.reduce_sum(tf.square(2.0*p*mean1 - 2.0*(1.0-p)*mean2))
-
-#     return mmd
-
-# def mmd2_rbf(X1,X2,p=0.5,sig=0.1):
-#     """ Computes the l2-RBF MMD for X1 vs X2 """
-#     K11 = tf.exp(-pdist2sq(X1,X1)/tf.square(sig))
-#     K12 = tf.exp(-pdist2sq(X1,X2)/tf.square(sig))
-#     K22 = tf.exp(-pdist2sq(X2,X2)/tf.square(sig))
-
-#     m = tf.to_float(tf.shape(X1)[0])
-#     n = tf.to_float(tf.shape(X2)[0])
-
-#     mmd = tf.square(1.0-p)/(m*(m-1.0))*(tf.reduce_sum(K11)-m)
-#     mmd = mmd + tf.square(p)/(n*(n-1.0))*(tf.reduce_sum(K22)-n)
-#     mmd = mmd - 2.0*p*(1.0-p)/(m*n)*tf.reduce_sum(K12)
-#     mmd = 4.0*mmd
-
-#     return mmd
-
-def mmd2_lin(X1,X2,W1=None,W2=None,p=0.5,weights=None):
+def mmd2_lin(X1, X2, W1=None, W2=None, p=0.5, weights=None):
     ''' Linear MMD '''    
     if (W1 is None) and (W2 is None):
-        W1 = tf.ones_like(X1[:,0])
-        W2 = tf.ones_like(X2[:,0])
+        W1 = torch.ones_like(X1[:, 0])
+        W2 = torch.ones_like(X2[:, 0])
     
-    W1     = div(W1, tf.reduce_sum(W1))
-    W2     = div(W2, tf.reduce_sum(W2))
+    W1 = div(W1, torch.sum(W1))
+    W2 = div(W2, torch.sum(W2))
     
-    W1     = tf.reshape(W1, [-1,1])
-    W2     = tf.reshape(W2, [-1,1])
+    W1 = W1.view(-1, 1)
+    W2 = W2.view(-1, 1)
         
-    mean1 = tf.reduce_sum(W1*X1, axis=0)
-    mean2 = tf.reduce_sum(W2*X2, axis=0)
+    mean1 = torch.sum(W1 * X1, dim=0)
+    mean2 = torch.sum(W2 * X2, dim=0)
     
-    mmd = tf.reduce_sum(tf.square(2.0*p*mean1 - 2.0*(1.0-p)*mean2))
+    mmd = torch.sum((2.0 * p * mean1 - 2.0 * (1.0 - p) * mean2)**2)
     
     return mmd
 
 
-def wasserstein(X1,X2,W1=None,W2=None,p=0.5,lam=10,its=10): #,sq=False,backpropT=False):
+def wasserstein(X1, X2, W1=None, W2=None, p=0.5, lam=10, its=10):
     """ Returns the Wasserstein distance between treatment groups """    
-    n1 = tf.cast(tf.shape(X1)[0], dtype=tf.float32)
-    n2 = tf.cast(tf.shape(X2)[0], dtype=tf.float32)
+    device = X1.device
+    dtype = X1.dtype
+    
+    n1 = float(X1.shape[0])
+    n2 = float(X2.shape[0])
     
     ''' Compute distance matrix'''
-    M = pdist2sq(X1,X2)
+    M = pdist2sq(X1, X2)
         
-    #for now consider W1 and W2 is [None,] shape
+    # for now consider W1 and W2 is [None,] shape
     if (W1 is None) and (W2 is None):
-        W1 = tf.ones_like(X1[:,0])
-        W2 = tf.ones_like(X2[:,0])
+        W1 = torch.ones_like(X1[:, 0])
+        W2 = torch.ones_like(X2[:, 0])
     
-    W1     = div(W1, tf.reduce_sum(W1))
-    W2     = div(W2, tf.reduce_sum(W2))
+    W1 = div(W1, torch.sum(W1))
+    W2 = div(W2, torch.sum(W2))
     
-    W1     = tf.reshape(W1, [-1,1])
-    W2     = tf.reshape(W2, [-1,1])
-    W_mask = tf.tile(W1, [1, n2]) * tf.tile(tf.transpose(W2), [n1, 1])
+    W1 = W1.view(-1, 1)
+    W2 = W2.view(-1, 1)
+    
+    # Outer product for mask
+    W_mask = W1.repeat(1, int(n2)) * W2.t().repeat(int(n1), 1)
     
     ''' Estimate lambda and delta '''
-    M_mean = tf.reduce_sum(M*W_mask) #this becomes weighted average
+    M_mean = torch.sum(M * W_mask) # this becomes weighted average
     
-    M_drop  = tf.nn.dropout(M, rate=1 - (10/(n1*n2)))
-    delta   = tf.stop_gradient(tf.reduce_max(M))
-    eff_lam = tf.stop_gradient(lam/M_mean)
+    # Note: tf.nn.dropout rate is probability to drop. 
+    # PyTorch dropout p is also probability to zero out.
+    # The logic provided in TF was rate=1-(...), so p=1-(...).
+    # M_drop is calculated but not used in the original TF calculation for D. 
+    # Kept here for strict translation consistency.
+    drop_prob = 1.0 - (10.0 / (n1 * n2))
+    if drop_prob < 0: drop_prob = 0.0
+    M_drop = F.dropout(M, p=drop_prob, training=True) 
+    
+    delta = torch.max(M).detach()
+    eff_lam = (lam / M_mean).detach()
 
     ''' Compute new distance matrix '''
-    Mt  = M
-    row = delta*tf.ones(tf.shape(M[0:1,:]))
-    col = tf.concat([delta*tf.ones(tf.shape(M[:,0:1])),tf.zeros((1,1))], axis=0)
-    Mt  = tf.concat([M,row], axis=0)
-    Mt  = tf.concat([Mt,col], axis=1)
+    # Expansion: Add row and col of deltas, with 0 at the corner
+    # Row extension
+    row_ext = delta * torch.ones((1, M.shape[1]), device=device, dtype=dtype)
+    Mt = torch.cat([M, row_ext], dim=0)
+    
+    # Col extension (including the corner zero)
+    col_ext = delta * torch.ones((M.shape[0], 1), device=device, dtype=dtype)
+    corner = torch.zeros((1, 1), device=device, dtype=dtype)
+    col = torch.cat([col_ext, corner], dim=0)
+    
+    Mt = torch.cat([Mt, col], dim=1)
 
     ''' Compute marginal vectors '''        
-    a = tf.concat([p*tf.ones_like(X1[:,0:1])*W1, (1-p)*tf.ones((1,1))], axis=0)
-    b = tf.concat([(1-p)*tf.ones_like(X2[:,0:1])*W2, p*tf.ones((1,1))], axis=0)
+    # a: concat [p * W1, (1-p)]
+    a_top = p * torch.ones_like(X1[:, 0:1]) * W1
+    a_bot = (1 - p) * torch.ones((1, 1), device=device, dtype=dtype)
+    a = torch.cat([a_top, a_bot], dim=0)
+
+    # b: concat [(1-p) * W2, p]
+    b_top = (1 - p) * torch.ones_like(X2[:, 0:1]) * W2
+    b_bot = p * torch.ones((1, 1), device=device, dtype=dtype)
+    b = torch.cat([b_top, b_bot], dim=0)
 
     ''' Compute kernel matrix'''
-    Mlam = eff_lam*Mt
-    K = tf.exp(-Mlam) + 1e-6 # added constant to avoid nan
-    U = K*Mt
-    ainvK = K/a
+    Mlam = eff_lam * Mt
+    K = torch.exp(-Mlam) + 1e-6 # added constant to avoid nan
+    # U = K * Mt # Not used in subsequent calculations in original code
+    ainvK = K / a
 
     u = a
-    for i in range(0,its):
-        u = 1.0/(tf.matmul(ainvK,(b/tf.transpose(tf.matmul(tf.transpose(u),K)))))
-    v = b/(tf.transpose(tf.matmul(tf.transpose(u),K)))
+    for i in range(0, its):
+        # TF: u = 1.0/(tf.matmul(ainvK,(b/tf.transpose(tf.matmul(tf.transpose(u),K)))))
+        # Decomposing inner matmuls for shapes (assuming u is col vector)
+        # u.t() @ K -> (1, m)
+        denom = b / (torch.matmul(u.t(), K).t())
+        u = 1.0 / torch.matmul(ainvK, denom)
+        
+    v = b / (torch.matmul(u.t(), K).t())
 
-    T = u*(tf.transpose(v)*K)
+    T = u * (v.t() * K)
 
-    E = T*Mt
-    D = 2*tf.reduce_sum(E)
+    E = T * Mt
+    D = 2 * torch.sum(E)
 
-    return D #, Mlam
+    return D
