@@ -36,7 +36,7 @@ class SurvITE(nn.Module):
     def __init__(self, input_dims, network_settings, device='cpu'):
         super(SurvITE, self).__init__()
         self.device = device
-        
+
         self.x_dim = input_dims['x_dim']
         self.t_max = input_dims['t_max']
         self.num_Event = input_dims['num_Event']
@@ -46,7 +46,7 @@ class SurvITE(nn.Module):
         self.h_dim2 = network_settings['h_dim2']
         self.num_layers1 = network_settings['num_layers1']
         self.num_layers2 = network_settings['num_layers2']
-        
+
         # Activation map
         if network_settings['active_fn'] == 'relu':
             self.active_fn = nn.ReLU()
@@ -55,12 +55,13 @@ class SurvITE(nn.Module):
         else:
             self.active_fn = nn.ReLU()
 
+        self.beta = network_settings['beta']
         self.reg_scale = network_settings.get('reg_scale', 0.0)
         self.ipm_term = network_settings['ipm_term']
         self.is_treat = network_settings['is_treat']
         self.is_smoothing = network_settings['is_smoothing']
         self.clipping_thres = 10.0
-        
+
         self._build_net()
         self.to(self.device)
 
@@ -68,7 +69,7 @@ class SurvITE(nn.Module):
         # 1. Encoder PHI(x)
         self.encoder = FCNet(self.x_dim, self.z_dim, self.num_layers1, self.h_dim1, 
                              self.active_fn, dropout_rate=0.0) # Dropout set dynamically during forward
-        
+
         # TF code does Batch Norm AFTER encoder before splitting
         self.bn = nn.BatchNorm1d(self.z_dim)
 
@@ -79,7 +80,7 @@ class SurvITE(nn.Module):
             FCNet(self.z_dim, 1, self.num_layers2, self.h_dim2, self.active_fn)
             for _ in range(self.t_max)
         ])
-        
+
         # For A=0
         if self.is_treat:
             self.heads_a0 = nn.ModuleList([
@@ -101,48 +102,48 @@ class SurvITE(nn.Module):
                 z = self.active_fn(z)
                 z = F.dropout(z, p=dropout_rate, training=self.training)
             z = self.encoder.layers[-1](z)
-        
+
         # Batch Norm & Activation
         z = self.bn(z)
         z = self.active_fn(z)
         z = F.dropout(z, p=dropout_rate, training=self.training)
-        
+
         logits_a1_list = []
         logits_a0_list = []
-        
+
         # Loop through time steps
         for m in range(self.t_max):
             # A=1
             l1 = self.heads_a1[m](z) # output (B, 1)
             logits_a1_list.append(l1)
-            
+
             # A=0
             if self.is_treat:
                 l0 = self.heads_a0[m](z)
                 logits_a0_list.append(l0)
             else:
                 logits_a0_list.append(torch.zeros_like(l1))
-                
+
         # Concatenate along dim 1 -> (B, T_max)
         logits_a1 = torch.cat(logits_a1_list, dim=1)
         logits_a0 = torch.cat(logits_a0_list, dim=1)
-        
+
         return z, logits_a1, logits_a0
 
     def calculate_loss(self, x, y, t, a, w, beta, gamma, dropout_rate=0.0):
         # Forward pass
         z, logits_a1, logits_a0 = self.forward(x, dropout_rate)
-        
+
         # Prepare Masks
         # t shape: (B, 1), w shape: (B, T_max, 2), a shape: (B, 1)
         tmp_range = torch.arange(0, self.t_max, device=self.device).float().unsqueeze(0) # (1, T_max)
         mask1 = (tmp_range == t).float() # (B, T_max) Equality
         mask2 = (tmp_range <= t).float() # (B, T_max) At risk
-        
+
         y_expanded = mask1 * y # Broadcasting y (B, 1) -> (B, T_max) if needed, but usually y is (B, 1)
         if y.shape[1] != self.t_max:
-             y_expanded = mask1 * y # Assuming y is binary event indicator
-        
+            y_expanded = mask1 * y # Assuming y is binary event indicator
+
         w_clipped = torch.clamp(w, 0., self.clipping_thres)
 
         # --- IPM Loss ---
@@ -151,7 +152,7 @@ class SurvITE(nn.Module):
             for m in range(self.t_max):
                 # Indices where A=1 and patient is at risk (mask2=1)
                 idx1 = ((a[:, 0] * mask2[:, m]) == 1).nonzero(as_tuple=False).squeeze()
-                
+
                 # A=0
                 idx0 = None
                 if self.is_treat:
@@ -165,7 +166,7 @@ class SurvITE(nn.Module):
                     # The TF code compares z vs z[idx1]
                     if self.ipm_term == 'mmd_lin':
                         loss_ipm += mmd2_lin(z, z_sub, torch.ones_like(z[:,0]), w_sub)
-                    elif self.ipm_term == 'wasserstein':
+                    elif self.ipm_term == "wasserstein":
                         loss_ipm += wasserstein(z, z_sub, torch.ones_like(z[:,0]), w_sub)
 
                 # IPM Term A=0
@@ -184,7 +185,7 @@ class SurvITE(nn.Module):
                 # Weights from current and prev step
                 for p_curr, p_prev in zip(self.heads_a1[m].parameters(), self.heads_a1[m-1].parameters()):
                     loss_smoothing += torch.mean((p_curr - p_prev) ** 2)
-                
+
                 if self.is_treat:
                     for p_curr, p_prev in zip(self.heads_a0[m].parameters(), self.heads_a0[m-1].parameters()):
                         loss_smoothing += torch.mean((p_curr - p_prev) ** 2)
@@ -195,7 +196,7 @@ class SurvITE(nn.Module):
         # Denom for A=1
         denom1 = torch.sum(mask2 * a * w[:, :, 0], dim=0, keepdim=True) + 1e-8
         tmp_w1 = (w[:, :, 0] / denom1) * mask2 * a
-        
+
         denom0 = 1.0
         tmp_w0 = torch.zeros_like(tmp_w1)
         if self.is_treat:
@@ -206,7 +207,7 @@ class SurvITE(nn.Module):
         # labels: y_expanded, logits: logits_A1
         bce_a1 = F.binary_cross_entropy_with_logits(logits_a1, y_expanded, reduction='none')
         loss_a1 = torch.sum(tmp_w1 * bce_a1)
-        
+
         loss_factual = loss_a1
         if self.is_treat:
             bce_a0 = F.binary_cross_entropy_with_logits(logits_a0, y_expanded, reduction='none')
@@ -221,14 +222,14 @@ class SurvITE(nn.Module):
             loss_reg *= self.reg_scale
 
         total_loss = loss_factual + beta * loss_ipm + gamma * loss_smoothing + loss_reg
-        
+
         return total_loss, loss_factual, loss_ipm
 
     # --- Training Step ---
     def train_step(self, optimizer, x, y, t, a, w, beta=1e-3, gamma=1e-3, dropout_rate=0.0):
         self.train()
         optimizer.zero_grad()
-        
+
         # Convert to tensor if numpy
         x = torch.tensor(x, dtype=torch.float32).to(self.device)
         y = torch.tensor(y, dtype=torch.float32).to(self.device)
@@ -240,17 +241,17 @@ class SurvITE(nn.Module):
             gamma = 0.0
 
         loss_total, loss_fact, loss_ipm = self.calculate_loss(x, y, t, a, w, beta, gamma, dropout_rate)
-        
+
         loss_total.backward()
         optimizer.step()
-        
+
         return loss_total.item(), loss_fact.item(), loss_ipm.item()
 
     # --- Training Baseline ---
     def train_baseline(self, optimizer, x, y, t, a, dropout_rate=0.0):
         # Calls train_step with default weights and zero beta/gamma
         w = np.ones([x.shape[0], self.t_max, 2])
-        return self.train_step(optimizer, x, y, t, a, w, beta=0.0, gamma=0.0, dropout_rate=dropout_rate)
+        return self.train_step(optimizer, x, y, t, a, w, beta=self.beta, gamma=0.0, dropout_rate=dropout_rate)
 
     # --- Inference ---
     def _predict_hazard(self, x, is_treat_group=True):
@@ -258,16 +259,16 @@ class SurvITE(nn.Module):
         with torch.no_grad():
             x = torch.tensor(x, dtype=torch.float32).to(self.device)
             z, logits_a1, logits_a0 = self.forward(x, dropout_rate=0.0)
-            
+
             logits = logits_a1 if is_treat_group else logits_a0
-            
+
             odd = torch.exp(logits)
             hazard = odd / (1. + odd)
             return hazard.cpu().numpy()
 
     def predict_hazard_A1(self, x):
         return self._predict_hazard(x, is_treat_group=True)
-    
+
     def predict_hazard_A0(self, x):
         return self._predict_hazard(x, is_treat_group=False)
 
