@@ -4,6 +4,25 @@ import torch.nn.functional as F
 import numpy as np
 from utils.ipm_utils import mmd2_lin, wasserstein
 
+# --- OGM - GE ---
+class OGM_GE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, coeff, noise_std):
+        ctx.coeff = coeff
+        ctx.noise_std = noise_std
+        return x.clone() # Pass-through
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Modulate the gradient magnitude
+        grad_input = grad_output * ctx.coeff
+        
+        # Gaussian Noise Enhancement
+        if ctx.noise_std > 0:
+            noise = torch.normal(mean=0, std=ctx.noise_std, size=grad_input.shape, device=grad_input.device)
+            grad_input = grad_input + noise
+            
+        return grad_input, None, None
 
 # --- Helper Network ---
 class FCNet(nn.Module):
